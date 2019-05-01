@@ -1,54 +1,57 @@
-# Amazon Elastic Search
+# Amazon Elastic Search Use Cases
 
-*Speaker: Kuldeep, @this_is_kuldeep*
+*Speaker: Kuldeep, [@this_is_kuldeep](https://twitter.com/this_is_kuldeep?lang=en)*
+
 # Logs analytics at Expedia Using Amazon Elastic Search
+In 2017 at Expedia we have
+- \+ 150 Clusters (different sizes)
+- \+ 450 EC2 (different sizes)
+- \+ 30TB of data (not more than 3 days)
+- \+ 30B documents
 
-
-- \+150 Clusters (different sizes)
-- \+450 EC2 (different sizes)
-- \+30TB of data (not more than 3 days)
-- \+30 documents
+With a big infrastructure like that, it is difficult to monitore and quickly find a failure cause. But since every service generate logs, How can we use these logs effecientely ? \
+For that, we decided to use Amazon Elastic Search.
 
 
 ### Why did we choose Amazon ES ?
 
-- It's open source
+- It's open source (Elastic Search)
 - User-friendly console
+- Easy to set up
+
+Also AWS offers
 - High availability
--- Security
-
 - Flexible storage options
-- VPS
+- VPC
+- High Security
 - Monitoring with (CloudWatch)
-- backups
+- Backups
 
-*Before amazon it wasn't fully automated*
+*Before AWS our infrastrucutre wasn't fully automated*
 
 ## Different Log Analytics Architectures
 
-### 1 Docker startup logs to Elasticsearch
+### 1. Docker startup logs to Elasticsearch
 
-Move from EC2 to ECS \
-Microservices  use
-The logs of Docker were print in the consoles not anywhere else\
-**Solution**: write the logs in a file and put this file to the cluster
+At one moment, we moved from EC2 to ECS, mainly because our microservices number started to explode. \
+Before Docker 1.7, The logs of Docker were printed in the console and not anywhere else but we needed these logs to be able to do some analytics.\
+**Solution**: write the logs in a file and put this file to the cluster (s3).
 
-#### Problem:
-    Understand why a particular service is not starting.
+>**Problem**:\
+>We want to understand why a particular service is not starting.
 
-Docker 1.7 introduce *docker logger* which is a streaming option for docker logs\
-From now then send the logs directly to a streaming service - here we use **Fluent**.
+Docker 1.7 introduced *[docker logger](https://docs.docker.com/config/containers/logging/)* which is a streaming option for docker logs\
+From now then we send the logs directly to a streaming service - here we use **[fluentd](https://www.fluentd.org/)**.
 
 *Architecture:*
 ![docker logs architecture](images/docker-logs.png)
 
 This image explains how we get and process our logs.
-When we start a cluster on ECS, in the backend it start the docker containers and these containers through docker logger stream the logs to Fluentd, Fluentd forward these logs to Amazon ES for processing and we then visualize the results with Kibana.
-From these results, when a container failed to start, we automate a event by sending the Kibana url and all the description to the operator.
+When we start a cluster on ECS, in the backend it start the docker containers and these containers through docker logger stream the logs to fluentd; fluentd forward these logs to Amazon ES for processing and we visualize the results with [Kibana](https://www.elastic.co/products/kibana).
+From these results, when a container failed to start, we automated an event by sending the Kibana url and all the description to the operator.
 
-FLuentd is like apache flume or kafka.
 
-**Docker fluentd log_driver configuration**
+**message example: fluentd log_driver configuration**
 ```json
 {
     "log_driver": "fluentd",
@@ -87,23 +90,23 @@ The logs are just forwarded to the elastic search domain
 ```
 
 
-#### 2 cloudtrail log analytics using Amazon ES
+### 2. cloudtrail log analytics using Amazon ES
 
-CloudTrail records all the api calls made to AWS services and save them in a s3 bucket.\
-From theses logs, you can do any processing you can think of. In fact the logs keep trace of "who, where, when, what" of the api call.
+CloudTrail is an AWS service which records all the api calls made to AWS services and save them in a s3 bucket.\
+From theses logs, you can do any processing you can think of. In fact the logs keep trace of *"who, where, when, what"* of every api call.
 
-> Example of use case at Expedia: Use to tag the EBS volumes. Because whenever a EC2 instance start, there is no option to automatically tag the EBS instances created.
-> Can also be used for security purposes: If an unknown IP address where to make a request to your AWS account.
+> **Example of use case at Expedia**: 
+> Can be used for security purposes: For eg. if an unknown IP address makes a request to your AWS account, you can automatically find it out by analysin these cloudtrail logs.
 
-**Problem**:
-Expedia owns 3 AWS account and lot of services on each one (ECS, EBS, EC2, etc).\
-Expedia would like to know who is making an api call and on which account.
+>**Problem**:\
+Expedia owns 3 AWS accounts and lot of services (ECS, EBS, EC2, etc) on each of them.\
+Expedia would like to know who is making an api call and on which account and other statistics.
 
 *Architecture:*
 ![cloud trail logs architecture](images/cloudtrail-logs.png)
 
-So:
-Cloud Trail generate the logs and save them to a s3 bucket. From this s3 bucket we set up a SNS listener which trigger at every write. Then a Lambda (AWS Lambda) function is linked to this SNS listener. The lambda function does only one thing which is to forward the data to Amazon ES.
+**Idea**:
+Cloud Trail generates the logs and save them to a s3 bucket. From this s3 bucket we set up a SNS listener which trigger at every write. Then a Lambda (AWS Lambda) function is linked to this SNS listener. The lambda function does only one thing which is to forward the data to Amazon ES.
 
 The Lamnda function's code
 ```python
@@ -119,36 +122,50 @@ for record in json.loads(content)['Records']:
 return True
 ```
 
-**Results**
+**Results**\
 A dashboard with the top 10 api calls within every 10 mins.\
-The solution is at
-[cloud trail logs analytics](https://github.com/ExpediaDotCom/cloudtrail-log-analytics)
-Run with SAM
-Serverless Application Model from AWS.
+Expedia made this solution available on their [github repository](https://github.com/ExpediaDotCom/cloudtrail-log-analytics).
 
 
-#### - CI/CD platform KPIs using Amazon ES
-We use Primer for managing the micro services
+
+### 3. CI/CD platform KPIs using Amazon ES
+We use [Primer](https://medium.com/expedia-engineering/the-inside-scoop-on-primer-expedias-internal-cloud-deployment-tool-8a3e16ec0300) for managing the microservices
 + \+1500 deployments/day all environments
 + \+300 on production
 
-**Problem**: Why a particular service is failing\
-Have to fugure out a way to differenciate a user generate issue or a platform issue.
+>**Problem**:\
+Why a particular service is failing?\
+And for any failure, we would also like to figure out of its generated by a user or by the platform.
 
-The platform is build on top of *Ruby* and *Node.js* and both send the same event notifications (push event: deploy or realease) to SNS. Once an event is in SNS, a lambda trigger and fetch the data and do some preprocessing.
+The platform is build on top of *Ruby* and *Node.js* and both send the same event notifications (push event: deploy or realease) to SNS. Once the SNS catch an event, a lambda function is triggered, en thfetch the data and do some preprocessing.
 
 *Architecture:*
 ![CI/CD logs anlytics architecture](images/ci-cd-logs.png)
 
 
-#### - Distributed tracing platform using Amazon ES
-Resource for Distributed Tracing
-Google: Dapper
+### 4. Distributed tracing platform using Amazon ES
+Lot of companies are moving from monolith architecture to microservices architecture. From that you need a way to trace how a particular request traverses your system.
+>**Problem**:\
+How to trace a particular request traversing a distributed (microservices) system?
 
-#### - Hotel image metadata repository using Amazon ES
-Amazon ES is used as ametada repository for hotel images
+**Idea**
+Use a distributed tracing system.
+At Expedia we use [apache zipkin](https://github.com/apache/incubator-zipkin).
+Apache Zipkin is open source and build based on [google apper](https://ai.google/research/pubs/pub36356).
 
-For an image we have data:
+For every web request, Zipkin can trace its span (how long it takes). The trace contains other information as well.
+
+*Architecture*
+![Distributed tracing platform](images/tracing-logs.png)
+
+In this architecture we attached only one consumer to Amazon Kinesis because with more consumers amazon kinesis became expensive. This single consumer transforms and push the data to an [apache kafka server](https://kafka.apache.org/) to which many consumers are attached.\
+
+
+
+### 5. Hotel image metadata repository using Amazon ES
+In this last case, Amazon ES is used as a ametada repository for hotels images.
+
+For an image we have some metadata including:
 
 - URL
 - Latitude, Longitude
@@ -158,15 +175,24 @@ For an image we have data:
 - Google Vision tags
 - Etc.
 
-Once the data is in Amazon Elastic Search, we create a dashboard where we can find for example the number of image with a given "google image tag" (eg: room with bed).
+Once the data is in Amazon Elastic Search, we created a dashboard where we can find for example the number of image with a given [google vision](https://developers.google.com/vision/) tag (eg: room with bed).
 
 ### Things to keep in mind
+
 
 - Scaling of cluster results in a new cluster with the data beign synchronized
 - Monitor and optimize the cluster yourself (Don't just go by the default, optimize it for your need)
 
+You can find the re:Invent [video](https://www.youtube.com/watch?v=oJUpUQ_yNVw&feature=youtu.be) is here.
 
-*Blogger:
+>*Blogger:
 Chriss Santi\
-CS Master student at the RUG University
-osler.santi@gmail.com*
+CS Master student at the RUG University\
+Email: osler.santi@gmail.com\
+Github: github.com/anostdev*
+
+If you want to know more about AWS, don't hesitate to go on [AWS Educate](https://aws.amazon.com/education/awseducate/) and [Qwiklabs](https://www.qwiklabs.com/home?locale=en) for great tutorials labs.
+
+
+*PS: This article is a derived from the presentation made by Kuldeep during the Amazon re:Invent 2017\
+English is not my first language ;) sorry for the mistakes -- improvements will follows as I write articles :p*
